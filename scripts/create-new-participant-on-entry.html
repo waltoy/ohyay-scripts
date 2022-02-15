@@ -1,0 +1,97 @@
+<html>
+<head>
+  <script src="https://ohyay.co/js/api.js"></script>
+</head>
+<body style="background-color: white">
+  <script>
+    ohyay.registerMessageHandler(async s => {
+        const roomId = await ohyay.getCurrentRoomId();
+        console.log('Current Room', roomId);
+    });
+
+    ohyay.setApiLoadedListener(async () => {
+        console.log('API is ready to use now!');
+        const res = await ohyay.setParticipantRoomsDependency();
+        if (!res) {
+            console.warn('Could not set dependency');
+            return;
+        }
+        
+        const roomId = await ohyay.getCurrentRoomId();
+        const templateSlot = (await ohyay.getRoomElements(roomId, 'slot-template' /* title */))[0];
+        if (templateSlot) {
+            document.body.innerHTML = `Ready`;
+        } else {
+            document.body.innerHTML = `NOT READY: put a manual participant element with title "slot-template" in this room`;
+        }
+
+        render();
+    });
+    
+    const sleep = function(timeout) {
+        return new Promise(resolve => setTimeout(resolve, timeout));
+    }
+    
+    const render = async iframeData => {
+        // Wait a while to try to reduce races between multiple users in the room.
+        await sleep(1000 * Math.random());
+        
+        const roomId = await ohyay.getCurrentRoomId();
+        const existingSlots = await ohyay.getRoomElements(roomId, 'slot' /* tag */);
+        const templateSlot = (await ohyay.getRoomElements(roomId, 'slot-template' /* title */))[0];
+        if (!templateSlot) {
+            console.warn('No template slot named "slot-template"');
+            return;
+        }
+        
+        //console.log('*** slots=', existingSlots);
+        
+        const users = await ohyay.getRoomUsers(roomId);
+        const userIdsToElIds = {};
+        const elIdsToDelete = [];
+        const userIdsToCreateFor = [];
+
+        for (const slot of existingSlots) {
+            if (slot.assignedParticipantId) {
+                userIdsToElIds[slot.assignedParticipantId] = slot.id;
+            }
+            if (users[slot.assignedParticipantId]) {
+                // keep
+            } else {
+                elIdsToDelete.push(slot.id);
+            }
+        }
+        
+        for (const [userId, userInfo] of Object.entries(users)) {
+            const existingElId = userIdsToElIds[userId];
+            if (!existingElId) {
+                userIdsToCreateFor.push(userId);
+            }
+        }
+        
+        for (const elId of elIdsToDelete) {
+            console.log('***** deleting el', elId);
+            await ohyay.invoke(elId, 'remove');  // no delete api
+        }
+        
+        for (const userId of userIdsToCreateFor) {
+            const data = Object.assign({}, templateSlot);
+            data.title = `Clone of ${data.title || 'slot'}`;
+            data.tags = data.tags || {};
+            data.tags['slot'] = true;
+            data.x = Math.round(500 * Math.random());
+            data.y = Math.round(500 * Math.random());
+            data.participantId = userId;
+            data.assignedParticipantId = userId;
+            data.joinMode = 'manual';
+            const newId = await ohyay.addElement(roomId, 'participant', data);
+            console.log('**** added new element', newId);
+        }
+    };
+    
+    ohyay.registerRenderHandler(render);
+
+    document.body.append('Loading...', new Date().toLocaleTimeString());
+  </script>
+</body>
+</html>
